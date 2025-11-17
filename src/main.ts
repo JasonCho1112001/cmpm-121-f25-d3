@@ -31,9 +31,9 @@ const CLASSROOM_LATLNG = leaflet.latLng(
 
 // Tunable gameplay parameters
 const GAMEPLAY_ZOOM_LEVEL = 19;
-const TILE_DEGREES = 1e-4;
-const NEIGHBORHOOD_SIZE = 8;
-const CACHE_SPAWN_PROBABILITY = 0.1;
+const _TILE_DEGREES = 1e-4;
+const _NEIGHBORHOOD_SIZE = 8;
+const _CACHE_SPAWN_PROBABILITY = 0.1;
 
 // Create the map (element with id "map" is defined in index.html)
 const map = leaflet.map(mapDiv, {
@@ -60,9 +60,5 @@ playerMarker.bindTooltip("That's you!");
 playerMarker.addTo(map);
 
 // Display the player's points
-let playerPoints = 0;
+const _playerPoints = 0;
 statusPanelDiv.innerHTML = "Points: 0";
-
-
-
-
