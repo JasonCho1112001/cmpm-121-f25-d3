@@ -13,8 +13,11 @@ import luck from "./_luck.ts";
 // Tunable gameplay parameters
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
-const NEIGHBORHOOD_RADIUS = 8;
+const NEIGHBORHOOD_RADIUS = 32;
 const _CACHE_SPAWN_PROBABILITY = 0.1;
+
+// New: how many cells away the player may interact
+const INTERACTION_RADIUS = 3;
 
 // Create basic UI elements
 const controlPanelDiv = document.createElement("div");
@@ -88,6 +91,21 @@ function refreshHeldDisplay() {
 }
 refreshHeldDisplay();
 
+// Track player's current lat/lng (playerMarker is created below)
+let playerLatLng = CLASSROOM_LATLNG;
+
+// Helper to get player's current cell indices
+function getPlayerCell() {
+  return latLngToCell(playerLatLng.lat, playerLatLng.lng);
+}
+
+// Returns true if the player is within INTERACTION_RADIUS cells of (i,j)
+function withinInteraction(i: number, j: number) {
+  const p = getPlayerCell();
+  return Math.abs(i - p.i) <= INTERACTION_RADIUS &&
+    Math.abs(j - p.j) <= INTERACTION_RADIUS;
+}
+
 // Grid data structure — make rect optional so cells without tokens don't hold an interactive rectangle
 type Cell = {
   i: number;
@@ -146,6 +164,11 @@ cellMenu.style.boxShadow = "0 2px 6px rgba(0,0,0,0.25)";
 cellMenu.style.zIndex = "1000";
 document.body.append(cellMenu);
 
+// Helper to hide the cell menu
+function hideCellMenu() {
+  cellMenu.style.display = "none";
+}
+
 // Close menu when clicking outside
 document.addEventListener("click", (ev) => {
   const target = ev.target as Node;
@@ -164,6 +187,7 @@ function showCellMenuFor(cell: Cell) {
   title.style.marginBottom = "6px";
   cellMenu.appendChild(title);
 
+  // (existing logic for grab/craft/info assumes player is in range)
   // Case: cell has a token and player holds none -> offer Grab
   if (cell.token !== null && heldToken === null) {
     const grabBtn = document.createElement("button");
@@ -244,10 +268,45 @@ function showCellMenuFor(cell: Cell) {
   cellMenu.style.display = "block";
 }
 
-// Hide the cell menu
-function hideCellMenu() {
-  cellMenu.style.display = "none";
+// New: show a short menu explaining the cell is out of range
+function showCellMenuTooFar(cell: Cell) {
   cellMenu.innerHTML = "";
+  const title = document.createElement("div");
+  title.textContent = `Cell ${cell.i},${cell.j}`;
+  title.style.fontWeight = "600";
+  title.style.marginBottom = "6px";
+  cellMenu.appendChild(title);
+
+  const p = getPlayerCell();
+  const dx = Math.abs(cell.i - p.i);
+  const dy = Math.abs(cell.j - p.j);
+  const info = document.createElement("div");
+  info.textContent =
+    `Too far to interact (distance: ${dx}, ${dy}). Move within ${INTERACTION_RADIUS} cells.`;
+  info.style.marginBottom = "6px";
+  cellMenu.appendChild(info);
+
+  const containerPoint = map.latLngToContainerPoint(cell.center);
+  const mapRect = map.getContainer().getBoundingClientRect();
+  const mapLeft = mapRect.left + globalThis.scrollX;
+  const mapTop = mapRect.top + globalThis.scrollY;
+  const left = Math.round(mapLeft + containerPoint.x + 8);
+  const top = Math.round(mapTop + containerPoint.y - 8);
+
+  cellMenu.style.left = `${left}px`;
+  cellMenu.style.top = `${top}px`;
+  cellMenu.style.display = "block";
+}
+
+// New: central click handler that enforces interaction distance
+function handleCellClick(cell: Cell) {
+  if (!withinInteraction(cell.i, cell.j)) {
+    // If out of range, show explanatory menu
+    showCellMenuTooFar(cell);
+    return;
+  }
+  // Otherwise, show the normal menu
+  showCellMenuFor(cell);
 }
 
 // Initialize cells around the classroom
@@ -282,7 +341,8 @@ for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
       // Make rectangle clickable: open the menu for that cell
       rect.on("click", (ev: leaflet.LeafletMouseEvent) => {
         if (ev.originalEvent) ev.originalEvent.stopPropagation();
-        showCellMenuFor({ i, j, bounds: b, center, token, rect });
+        // Use the central handler which checks player proximity
+        handleCellClick({ i, j, bounds: b, center, token, rect });
       });
     }
 
@@ -290,6 +350,41 @@ for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
     cells.set(cellKey(i, j), cell);
   }
 }
+
+// Developer: allow virtual movement by right-clicking the map (contextmenu).
+// Right-click will move the player marker to the clicked location and update status.
+
+function movePlayerTo(latlng: leaflet.LatLng) {
+  // Move marker
+  playerMarker.setLatLng(latlng);
+
+  // Update tracked player lat/lng for interaction checks
+  playerLatLng = latlng;
+
+  // Compute which cell the player is now in (for dev feedback)
+  const cell = latLngToCell(latlng.lat, latlng.lng);
+
+  // Update status panel with developer location info
+  statusPanelDiv.innerText =
+    `Dev moved player to cell ${cell.i},${cell.j} (lat:${
+      latlng.lat.toFixed(
+        6,
+      )
+    }, lng:${latlng.lng.toFixed(6)})`;
+
+  console.info("Developer moved player to:", cell, latlng);
+}
+
+// Handle right-click (contextmenu) on the map to move player
+map.on("contextmenu", (ev: leaflet.LeafletMouseEvent) => {
+  // Prevent default browser menu
+  if (ev.originalEvent) ev.originalEvent.preventDefault();
+  // Stop propagation so our global click handler doesn't immediately hide menus
+  if (ev.originalEvent) ev.originalEvent.stopPropagation();
+
+  // Move the player marker to the clicked location
+  movePlayerTo(ev.latlng);
+});
 
 // Utility: log an example mapping and counts for quick verification
 const example = latLngToCell(CLASSROOM_LATLNG.lat, CLASSROOM_LATLNG.lng);
