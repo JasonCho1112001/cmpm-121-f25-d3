@@ -162,8 +162,8 @@ function showCellMenuFor(cell: Cell) {
   const containerPoint = map.latLngToContainerPoint(cell.center);
   const mapRect = map.getContainer().getBoundingClientRect();
   // map container top-left in page coordinates:
-  const mapLeft = mapRect.left + window.scrollX;
-  const mapTop = mapRect.top + window.scrollY;
+  const mapLeft = mapRect.left + globalThis.scrollX;
+  const mapTop = mapRect.top + globalThis.scrollY;
 
   // place menu slightly offset so it doesn't overlap the exact click point
   const left = Math.round(mapLeft + containerPoint.x + 8);
@@ -213,7 +213,7 @@ for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
     cells.set(cellKey(i, j), cell);
 
     // Make rectangle clickable: open the menu for that cell
-    rect.on("click", (ev: any) => {
+    rect.on("click", (ev: leaflet.LeafletMouseEvent) => {
       // Stop Leaflet's click from propagating to the document listener that would close the menu
       if (ev.originalEvent) ev.originalEvent.stopPropagation();
       showCellMenuFor(cell);
