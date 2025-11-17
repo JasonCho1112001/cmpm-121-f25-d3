@@ -70,7 +70,7 @@ type Cell = {
   bounds: leaflet.LatLngBounds;
   center: leaflet.LatLng;
   token: number | null;
-  rect?: leaflet.Rectangle | undefined; // made optional so cells without tokens don't hold a rectangle
+  rect: leaflet.Rectangle;
 };
 const cells = new Map<string, Cell>();
 
@@ -108,6 +108,78 @@ function initialTokenFor(i: number, j: number): number | null {
   return 2 ** exponent;
 }
 
+// Create a single reusable popup/menu element (hidden until needed)
+const cellMenu = document.createElement("div");
+cellMenu.id = "cellMenu";
+cellMenu.style.position = "absolute";
+cellMenu.style.display = "none";
+cellMenu.style.padding = "6px";
+cellMenu.style.background = "white";
+cellMenu.style.border = "1px solid #333";
+cellMenu.style.borderRadius = "6px";
+cellMenu.style.boxShadow = "0 2px 6px rgba(0,0,0,0.25)";
+cellMenu.style.zIndex = "1000";
+document.body.append(cellMenu);
+
+// Close menu when clicking outside
+document.addEventListener("click", (ev) => {
+  const target = ev.target as Node;
+  if (!cellMenu.contains(target)) hideCellMenu();
+});
+
+// Helper to show menu for a cell (positions near the cell center on the map)
+function showCellMenuFor(cell: Cell) {
+  // Clear previous contents
+  cellMenu.innerHTML = "";
+
+  // Add a simple title
+  const title = document.createElement("div");
+  title.textContent = `Cell ${cell.i},${cell.j}`;
+  title.style.fontWeight = "600";
+  title.style.marginBottom = "6px";
+  cellMenu.appendChild(title);
+
+  // Add the "grab token" button
+  const grabBtn = document.createElement("button");
+  grabBtn.textContent = "Grab token";
+  grabBtn.style.display = "block";
+  grabBtn.style.width = "100%";
+  grabBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    console.info(
+      "Grab token clicked for cell",
+      cell.i,
+      cell.j,
+      "token:",
+      cell.token,
+    );
+    // For now just close the menu after clicking
+    hideCellMenu();
+  });
+  cellMenu.appendChild(grabBtn);
+
+  // Position the menu at the cell center on the screen
+  const containerPoint = map.latLngToContainerPoint(cell.center);
+  const mapRect = map.getContainer().getBoundingClientRect();
+  // map container top-left in page coordinates:
+  const mapLeft = mapRect.left + window.scrollX;
+  const mapTop = mapRect.top + window.scrollY;
+
+  // place menu slightly offset so it doesn't overlap the exact click point
+  const left = Math.round(mapLeft + containerPoint.x + 8);
+  const top = Math.round(mapTop + containerPoint.y - 8);
+
+  cellMenu.style.left = `${left}px`;
+  cellMenu.style.top = `${top}px`;
+  cellMenu.style.display = "block";
+}
+
+// Hide the cell menu
+function hideCellMenu() {
+  cellMenu.style.display = "none";
+  cellMenu.innerHTML = "";
+}
+
 // Initialize cells around the classroom
 for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
   for (let j = -NEIGHBORHOOD_RADIUS; j <= NEIGHBORHOOD_RADIUS; j++) {
@@ -117,18 +189,19 @@ for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
     // Decide token deterministically
     const token = initialTokenFor(i, j);
 
-    // Only create a visible rectangle + label if the cell actually has a token.
-    let rect: leaflet.Rectangle | undefined = undefined;
-    if (token !== null) {
-      rect = leaflet
-        .rectangle(b, {
-          color: "#666",
-          weight: 1,
-          fill: false,
-          interactive: false,
-        })
-        .addTo(map);
+    // Create a fully-interactive but visually minimal rectangle for every cell.
+    // Stroke and fill are transparent so the grid is not visible, but rectangles can be clicked.
+    const rect = leaflet
+      .rectangle(b, {
+        color: "transparent",
+        weight: 1,
+        fillOpacity: 0,
+        interactive: true,
+      })
+      .addTo(map);
 
+    // If token exists, bind a permanent tooltip so players see token values
+    if (token !== null) {
       rect.bindTooltip(String(token), {
         permanent: true,
         direction: "center",
@@ -138,6 +211,13 @@ for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
 
     const cell: Cell = { i, j, bounds: b, center, token, rect };
     cells.set(cellKey(i, j), cell);
+
+    // Make rectangle clickable: open the menu for that cell
+    rect.on("click", (ev: any) => {
+      // Stop Leaflet's click from propagating to the document listener that would close the menu
+      if (ev.originalEvent) ev.originalEvent.stopPropagation();
+      showCellMenuFor(cell);
+    });
   }
 }
 
@@ -149,3 +229,17 @@ console.info(
   "Total initialized cells:",
   cells.size,
 );
+
+// Simple style for the tooltip labels; adjust in style.css as needed
+const style = document.createElement("style");
+style.innerHTML = `
+  .cell-label {
+    font-weight: bold;
+    color: #222;
+    background: rgba(255,255,255,0.9);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 12px;
+  }
+`;
+document.head.append(style);
