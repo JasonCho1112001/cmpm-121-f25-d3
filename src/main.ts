@@ -8,6 +8,7 @@ import "./style.css"; // student-controlled page style
 import "./_leafletWorkaround.ts"; // fixes for missing Leaflet images
 
 // Import our luck function
+import luck from "./_luck.ts";
 
 // Tunable gameplay parameters
 const GAMEPLAY_ZOOM_LEVEL = 19;
@@ -68,6 +69,8 @@ type Cell = {
   j: number;
   bounds: leaflet.LatLngBounds;
   center: leaflet.LatLng;
+  token: number | null;
+  rect?: leaflet.Rectangle | undefined; // made optional so cells without tokens don't hold a rectangle
 };
 const cells = new Map<string, Cell>();
 
@@ -95,21 +98,46 @@ function latLngToCell(lat: number, lng: number) {
   return { i, j };
 }
 
+// Determine initial token for a cell deterministically using luck()
+// Spawn with probability _CACHE_SPAWN_PROBABILITY; value is 1,2,4,8 (power of two)
+function initialTokenFor(i: number, j: number): number | null {
+  const spawnSeed = `${i},${j},spawn`;
+  if (luck(spawnSeed) >= _CACHE_SPAWN_PROBABILITY) return null;
+  const valueSeed = `${i},${j},value`;
+  const exponent = Math.floor(luck(valueSeed) * 4); // 0..3
+  return 2 ** exponent;
+}
+
 // Initialize cells around the classroom
 for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
   for (let j = -NEIGHBORHOOD_RADIUS; j <= NEIGHBORHOOD_RADIUS; j++) {
     const b = boundsFor(i, j);
     const center = b.getCenter();
-    const cell: Cell = { i, j, bounds: b, center };
-    cells.set(cellKey(i, j), cell);
 
-    // Lightweight visual: stroke-only rectangle to show cell bounds during development
-    leaflet.rectangle(b, {
-      color: "#666",
-      weight: 1,
-      fill: false,
-      interactive: false,
-    }).addTo(map);
+    // Decide token deterministically
+    const token = initialTokenFor(i, j);
+
+    // Only create a visible rectangle + label if the cell actually has a token.
+    let rect: leaflet.Rectangle | undefined = undefined;
+    if (token !== null) {
+      rect = leaflet
+        .rectangle(b, {
+          color: "#666",
+          weight: 1,
+          fill: false,
+          interactive: false,
+        })
+        .addTo(map);
+
+      rect.bindTooltip(String(token), {
+        permanent: true,
+        direction: "center",
+        className: "cell-label",
+      });
+    }
+
+    const cell: Cell = { i, j, bounds: b, center, token, rect };
+    cells.set(cellKey(i, j), cell);
   }
 }
 
