@@ -164,7 +164,7 @@ function showCellMenuFor(cell: Cell) {
   title.style.marginBottom = "6px";
   cellMenu.appendChild(title);
 
-  // Add the "grab token" button only if cell has token and player holds none
+  // Case: cell has a token and player holds none -> offer Grab
   if (cell.token !== null && heldToken === null) {
     const grabBtn = document.createElement("button");
     grabBtn.textContent = "Grab token";
@@ -175,20 +175,52 @@ function showCellMenuFor(cell: Cell) {
       // Transfer token to player and remove it from the cell
       heldToken = cell.token;
       cell.token = null;
-      // Remove tooltip from the rectangle if present
+      // Remove tooltip and interactive rectangle so cell is no longer clickable
       cell.rect?.unbindTooltip();
+      cell.rect?.remove();
+      cell.rect = undefined;
       refreshHeldDisplay();
       hideCellMenu();
     });
     cellMenu.appendChild(grabBtn);
-  } else {
-    // If player already holds a token, show a disabled info line
-    if (heldToken !== null) {
+    // Done
+  } else if (cell.token !== null && heldToken !== null) {
+    // Player holds a token and cell has a token -> possible craft
+    if (heldToken === cell.token) {
+      // Show Craft button
+      const craftBtn = document.createElement("button");
+      craftBtn.textContent = `Craft (merge ${heldToken} + ${cell.token})`;
+      craftBtn.style.display = "block";
+      craftBtn.style.width = "100%";
+      craftBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // Double the held token, remove token from cell, remove rect/tooltip
+        heldToken = heldToken! * 2;
+        cell.token = null;
+        cell.rect?.unbindTooltip();
+        cell.rect?.remove();
+        cell.rect = undefined;
+        refreshHeldDisplay();
+        hideCellMenu();
+      });
+      cellMenu.appendChild(craftBtn);
+    } else {
+      // Cannot craft: values differ — provide contextual explanation
       const info = document.createElement("div");
-      info.textContent = "You are already holding a token.";
+      info.textContent =
+        `Cannot craft: held (${heldToken}) ≠ cell (${cell.token}). Values must match.`;
       info.style.marginBottom = "6px";
       cellMenu.appendChild(info);
-    } else if (cell.token === null) {
+    }
+  } else {
+    // Other informative states
+    if (heldToken !== null && cell.token === null) {
+      const info = document.createElement("div");
+      info.textContent =
+        "You are holding a token. There's no token here to craft with.";
+      info.style.marginBottom = "6px";
+      cellMenu.appendChild(info);
+    } else if (heldToken === null && cell.token === null) {
       const info = document.createElement("div");
       info.textContent = "No token in this cell.";
       info.style.marginBottom = "6px";
