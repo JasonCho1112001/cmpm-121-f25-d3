@@ -29,6 +29,22 @@ const statusPanelDiv = document.createElement("div");
 statusPanelDiv.id = "statusPanel";
 document.body.append(statusPanelDiv);
 
+// Bottom-left held-token display
+const heldTokenDiv = document.createElement("div");
+heldTokenDiv.id = "heldToken";
+heldTokenDiv.style.position = "fixed";
+heldTokenDiv.style.left = "12px";
+heldTokenDiv.style.bottom = "12px";
+heldTokenDiv.style.padding = "8px 12px";
+heldTokenDiv.style.background = "rgba(255,255,255,0.95)";
+heldTokenDiv.style.border = "1px solid #333";
+heldTokenDiv.style.borderRadius = "6px";
+heldTokenDiv.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
+heldTokenDiv.style.zIndex = "1000";
+heldTokenDiv.style.fontWeight = "600";
+heldTokenDiv.textContent = "Held Token: none";
+document.body.append(heldTokenDiv);
+
 // Our classroom location
 const CLASSROOM_LATLNG = leaflet.latLng(
   36.997936938057016,
@@ -63,14 +79,23 @@ playerMarker.addTo(map);
 const _playerPoints = 0;
 statusPanelDiv.innerHTML = "Points: 0";
 
-// Grid data structure
+// Player inventory: at most one token
+let heldToken: number | null = null;
+function refreshHeldDisplay() {
+  heldTokenDiv.textContent = heldToken === null
+    ? "Held Token: none"
+    : `Held Token: ${heldToken}`;
+}
+refreshHeldDisplay();
+
+// Grid data structure — make rect optional so cells without tokens don't hold an interactive rectangle
 type Cell = {
   i: number;
   j: number;
   bounds: leaflet.LatLngBounds;
   center: leaflet.LatLng;
   token: number | null;
-  rect: leaflet.Rectangle;
+  rect?: leaflet.Rectangle | undefined;
 };
 const cells = new Map<string, Cell>();
 
@@ -139,24 +164,37 @@ function showCellMenuFor(cell: Cell) {
   title.style.marginBottom = "6px";
   cellMenu.appendChild(title);
 
-  // Add the "grab token" button
-  const grabBtn = document.createElement("button");
-  grabBtn.textContent = "Grab token";
-  grabBtn.style.display = "block";
-  grabBtn.style.width = "100%";
-  grabBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    console.info(
-      "Grab token clicked for cell",
-      cell.i,
-      cell.j,
-      "token:",
-      cell.token,
-    );
-    // For now just close the menu after clicking
-    hideCellMenu();
-  });
-  cellMenu.appendChild(grabBtn);
+  // Add the "grab token" button only if cell has token and player holds none
+  if (cell.token !== null && heldToken === null) {
+    const grabBtn = document.createElement("button");
+    grabBtn.textContent = "Grab token";
+    grabBtn.style.display = "block";
+    grabBtn.style.width = "100%";
+    grabBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // Transfer token to player and remove it from the cell
+      heldToken = cell.token;
+      cell.token = null;
+      // Remove tooltip from the rectangle if present
+      cell.rect?.unbindTooltip();
+      refreshHeldDisplay();
+      hideCellMenu();
+    });
+    cellMenu.appendChild(grabBtn);
+  } else {
+    // If player already holds a token, show a disabled info line
+    if (heldToken !== null) {
+      const info = document.createElement("div");
+      info.textContent = "You are already holding a token.";
+      info.style.marginBottom = "6px";
+      cellMenu.appendChild(info);
+    } else if (cell.token === null) {
+      const info = document.createElement("div");
+      info.textContent = "No token in this cell.";
+      info.style.marginBottom = "6px";
+      cellMenu.appendChild(info);
+    }
+  }
 
   // Position the menu at the cell center on the screen
   const containerPoint = map.latLngToContainerPoint(cell.center);
@@ -189,35 +227,35 @@ for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
     // Decide token deterministically
     const token = initialTokenFor(i, j);
 
-    // Create a fully-interactive but visually minimal rectangle for every cell.
-    // Stroke and fill are transparent so the grid is not visible, but rectangles can be clicked.
-    const rect = leaflet
-      .rectangle(b, {
-        color: "transparent",
-        weight: 1,
-        fillOpacity: 0,
-        interactive: true,
-      })
-      .addTo(map);
-
-    // If token exists, bind a permanent tooltip so players see token values
+    // Only create an interactive rectangle if the cell actually has a token.
+    // Cells without tokens will not be clickable.
+    let rect: leaflet.Rectangle | undefined = undefined;
     if (token !== null) {
+      rect = leaflet
+        .rectangle(b, {
+          color: "transparent",
+          weight: 1,
+          fillOpacity: 0,
+          interactive: true,
+        })
+        .addTo(map);
+
+      // If token exists, bind a permanent tooltip so players see token values
       rect.bindTooltip(String(token), {
         permanent: true,
         direction: "center",
         className: "cell-label",
       });
+
+      // Make rectangle clickable: open the menu for that cell
+      rect.on("click", (ev: leaflet.LeafletMouseEvent) => {
+        if (ev.originalEvent) ev.originalEvent.stopPropagation();
+        showCellMenuFor({ i, j, bounds: b, center, token, rect });
+      });
     }
 
     const cell: Cell = { i, j, bounds: b, center, token, rect };
     cells.set(cellKey(i, j), cell);
-
-    // Make rectangle clickable: open the menu for that cell
-    rect.on("click", (ev: leaflet.LeafletMouseEvent) => {
-      // Stop Leaflet's click from propagating to the document listener that would close the menu
-      if (ev.originalEvent) ev.originalEvent.stopPropagation();
-      showCellMenuFor(cell);
-    });
   }
 }
 
