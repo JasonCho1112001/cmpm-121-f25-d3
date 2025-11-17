@@ -9,8 +9,13 @@ import "./_leafletWorkaround.ts"; // fixes for missing Leaflet images
 
 // Import our luck function
 
-// Create basic UI elements
+// Tunable gameplay parameters
+const GAMEPLAY_ZOOM_LEVEL = 19;
+const TILE_DEGREES = 1e-4;
+const NEIGHBORHOOD_RADIUS = 8;
+const _CACHE_SPAWN_PROBABILITY = 0.1;
 
+// Create basic UI elements
 const controlPanelDiv = document.createElement("div");
 controlPanelDiv.id = "controlPanel";
 document.body.append(controlPanelDiv);
@@ -28,12 +33,6 @@ const CLASSROOM_LATLNG = leaflet.latLng(
   36.997936938057016,
   -122.05703507501151,
 );
-
-// Tunable gameplay parameters
-const GAMEPLAY_ZOOM_LEVEL = 19;
-const _TILE_DEGREES = 1e-4;
-const _NEIGHBORHOOD_SIZE = 8;
-const _CACHE_SPAWN_PROBABILITY = 0.1;
 
 // Create the map (element with id "map" is defined in index.html)
 const map = leaflet.map(mapDiv, {
@@ -62,3 +61,63 @@ playerMarker.addTo(map);
 // Display the player's points
 const _playerPoints = 0;
 statusPanelDiv.innerHTML = "Points: 0";
+
+// Grid data structure
+type Cell = {
+  i: number;
+  j: number;
+  bounds: leaflet.LatLngBounds;
+  center: leaflet.LatLng;
+};
+const cells = new Map<string, Cell>();
+
+function cellKey(i: number, j: number) {
+  return `${i},${j}`;
+}
+
+// We treat cell (0,0) as the cell containing the classroom (centered on CLASSROOM_LATLNG).
+function boundsFor(i: number, j: number) {
+  const half = TILE_DEGREES / 2;
+  const sw = leaflet.latLng(
+    CLASSROOM_LATLNG.lat + i * TILE_DEGREES - half,
+    CLASSROOM_LATLNG.lng + j * TILE_DEGREES - half,
+  );
+  const ne = leaflet.latLng(
+    CLASSROOM_LATLNG.lat + i * TILE_DEGREES + half,
+    CLASSROOM_LATLNG.lng + j * TILE_DEGREES + half,
+  );
+  return leaflet.latLngBounds(sw, ne);
+}
+
+function latLngToCell(lat: number, lng: number) {
+  const i = Math.round((lat - CLASSROOM_LATLNG.lat) / TILE_DEGREES);
+  const j = Math.round((lng - CLASSROOM_LATLNG.lng) / TILE_DEGREES);
+  return { i, j };
+}
+
+// Initialize cells around the classroom
+for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
+  for (let j = -NEIGHBORHOOD_RADIUS; j <= NEIGHBORHOOD_RADIUS; j++) {
+    const b = boundsFor(i, j);
+    const center = b.getCenter();
+    const cell: Cell = { i, j, bounds: b, center };
+    cells.set(cellKey(i, j), cell);
+
+    // Lightweight visual: stroke-only rectangle to show cell bounds during development
+    leaflet.rectangle(b, {
+      color: "#666",
+      weight: 1,
+      fill: false,
+      interactive: false,
+    }).addTo(map);
+  }
+}
+
+// Utility: log an example mapping and counts for quick verification
+const example = latLngToCell(CLASSROOM_LATLNG.lat, CLASSROOM_LATLNG.lng);
+console.info(
+  "Classroom cell:",
+  example,
+  "Total initialized cells:",
+  cells.size,
+);
