@@ -19,3 +19,9 @@
 2. Create dynamically spawning and despawning system for cells (Make sure to keep the screen populated)
 3. Modify the cell coordinate system to use latitude and longitude
 4. Create game rules so that victory shows up when the largest possible digit is achieved (currently 16)
+
+## PLAN FOR D3.c
+
+1. Implement flyweight pattern to cell data storage (effective data storage for when inactive)
+2. Implement memento pattern to cell data storage (effective restoration when reactivating)
+
