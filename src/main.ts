@@ -13,7 +13,6 @@ import luck from "./_luck.ts";
 // Tunable gameplay parameters
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
-const NEIGHBORHOOD_RADIUS = 32;
 const _CACHE_SPAWN_PROBABILITY = 0.1;
 
 // New: how many cells away the player may interact
@@ -155,7 +154,8 @@ type Cell = {
   token: number | null;
   rect?: leaflet.Rectangle | undefined;
 };
-const cells = new Map<string, Cell>();
+// eager global cells map removed to implement Flyweight:
+// const cells = new Map<string, Cell>();
 
 function cellKey(i: number, j: number) {
   return `${i},${j}`;
@@ -363,23 +363,6 @@ function handleCellClick(cell: Cell) {
   showCellMenuFor(cell);
 }
 
-// Initialize logical cells around the classroom
-// NOTE: removed the eager initialization that created Cell objects for the whole neighborhood.
-// Visible cells are created on demand by spawnVisibleCell. This avoids holding heavy state
-// for off-screen cells.
-for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
-  for (let j = -NEIGHBORHOOD_RADIUS; j <= NEIGHBORHOOD_RADIUS; j++) {
-    const b = boundsFor(i, j);
-    const center = b.getCenter();
-
-    // Decide token deterministically but DO NOT create visual elements yet.
-    const token = initialTokenFor(i, j);
-
-    const cell: Cell = { i, j, bounds: b, center, token, rect: undefined };
-    cells.set(cellKey(i, j), cell);
-  }
-}
-
 // Developer: allow virtual movement by right-clicking the map (contextmenu).
 // Right-click will move the player marker to the clicked location and update status.
 
@@ -420,12 +403,7 @@ map.on("contextmenu", (ev: leaflet.LeafletMouseEvent) => {
 
 // Utility: log an example mapping and counts for quick verification
 const example = latLngToCell(CLASSROOM_LATLNG.lat, CLASSROOM_LATLNG.lng);
-console.info(
-  "Classroom cell:",
-  example,
-  "Total initialized cells:",
-  cells.size,
-);
+// console.info moved below after visibleCells is declared to avoid using the variable before initialization
 
 // Simple style for the tooltip labels; adjust in style.css as needed
 const style = document.createElement("style");
@@ -617,5 +595,18 @@ map.on("moveend", () => {
   updateVisibleCells();
 });
 
+// Hook into map movement so we spawn/despawn as the viewport changes
+map.on("moveend", () => {
+  updateVisibleCells();
+});
+
 // Ensure update runs on startup
 updateVisibleCells();
+
+// Now that visibleCells has been declared/initialized, log the example and count
+console.info(
+  "Classroom cell:",
+  example,
+  "Total visible cells:",
+  visibleCells.size,
+);
