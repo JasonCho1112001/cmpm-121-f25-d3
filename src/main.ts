@@ -244,6 +244,11 @@ function showCellMenuFor(cell: Cell) {
       cell.rect?.unbindTooltip();
       cell.rect?.remove();
       cell.rect = undefined;
+      // Persist memento if cell differs from deterministic initial state
+      const key = cellKey(cell.i, cell.j);
+      const initial = initialTokenFor(cell.i, cell.j);
+      if (cell.token !== initial) modifiedCells.set(key, { token: cell.token });
+      else modifiedCells.delete(key);
       refreshHeldDisplay();
       hideCellMenu();
     });
@@ -265,6 +270,12 @@ function showCellMenuFor(cell: Cell) {
         cell.rect?.unbindTooltip();
         cell.rect?.remove();
         cell.rect = undefined;
+        // Persist memento if cell differs from deterministic initial state
+        const key = cellKey(cell.i, cell.j);
+        const initial = initialTokenFor(cell.i, cell.j);
+        if (cell.token !== initial) {
+          modifiedCells.set(key, { token: cell.token });
+        } else modifiedCells.delete(key);
         refreshHeldDisplay();
         hideCellMenu();
       });
@@ -352,8 +363,10 @@ function handleCellClick(cell: Cell) {
   showCellMenuFor(cell);
 }
 
-// Initialize logical cells around the classroom (do NOT create any Leaflet rectangle here).
-// Visible rectangles will be created only by spawnVisibleCell, avoiding duplicates.
+// Initialize logical cells around the classroom
+// NOTE: removed the eager initialization that created Cell objects for the whole neighborhood.
+// Visible cells are created on demand by spawnVisibleCell. This avoids holding heavy state
+// for off-screen cells.
 for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
   for (let j = -NEIGHBORHOOD_RADIUS; j <= NEIGHBORHOOD_RADIUS; j++) {
     const b = boundsFor(i, j);
@@ -439,8 +452,12 @@ function movePlayerByCells(di: number, dj: number) {
   map.panTo(newLatLng);
 }
 
+// Flyweight memento store: only cells modified by the player are persisted here.
+type CellMemento = { token: number | null };
+const modifiedCells = new Map<string, CellMemento>();
+
 // Keep track of currently rendered (visible) cells only.
-// When a cell is removed from `visibleCells` we fully forget its state.
+// When a cell is removed from `visibleCells` we fully forget its runtime visuals.
 const visibleCells = new Map<string, Cell>();
 
 // Compute integer cell ranges that cover a Leaflet bounds object.
@@ -501,8 +518,9 @@ function spawnVisibleCell(i: number, j: number) {
   const b = boundsFor(i, j);
   const center = b.getCenter();
 
-  // Note: initialTokenFor is called each spawn so cells forget state when despawned.
-  const token = initialTokenFor(i, j);
+  // Restore from modified memento if present; otherwise compute deterministic initial state
+  const fromMemento = modifiedCells.get(key);
+  const token = fromMemento ? fromMemento.token : initialTokenFor(i, j);
 
   let rect: leaflet.Rectangle | undefined;
   if (token !== null) {
@@ -539,24 +557,36 @@ function spawnVisibleCell(i: number, j: number) {
 }
 
 // Fully remove a visible cell and forget its runtime state.
+// Persist a memento only if the cell was modified relative to the deterministic initial state.
 function despawnVisibleCell(key: string) {
   const cell = visibleCells.get(key);
   if (!cell) return;
+
   // remove any visual elements
   if (cell.rect) {
     try {
       cell.rect.unbindTooltip();
-    } catch (err) {
+    } catch (_err) {
       // ignore errors from unbinding tooltip if the element was already removed
-      console.warn("Failed to unbind tooltip for cell:", err);
     }
     try {
       cell.rect.remove();
-    } catch (err) {
+    } catch (_err) {
       // ignore errors from removing rectangle
-      console.warn("Failed to remove rectangle for cell:", err);
     }
   }
+
+  // Decide whether to persist this cell's contents.
+  const [si, sj] = key.split(",").map(Number);
+  const initial = initialTokenFor(si, sj);
+  if (cell.token !== initial) {
+    // player changed the cell -> save a small memento
+    modifiedCells.set(key, { token: cell.token });
+  } else {
+    // no meaningful change -> ensure there's no lingering memento
+    modifiedCells.delete(key);
+  }
+
   visibleCells.delete(key);
 }
 
