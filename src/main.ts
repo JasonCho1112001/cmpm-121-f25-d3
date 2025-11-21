@@ -349,44 +349,17 @@ function handleCellClick(cell: Cell) {
   showCellMenuFor(cell);
 }
 
-// Initialize cells around the classroom
+// Initialize logical cells around the classroom (do NOT create any Leaflet rectangle here).
+// Visible rectangles will be created only by spawnVisibleCell, avoiding duplicates.
 for (let i = -NEIGHBORHOOD_RADIUS; i <= NEIGHBORHOOD_RADIUS; i++) {
   for (let j = -NEIGHBORHOOD_RADIUS; j <= NEIGHBORHOOD_RADIUS; j++) {
     const b = boundsFor(i, j);
     const center = b.getCenter();
 
-    // Decide token deterministically
+    // Decide token deterministically but DO NOT create visual elements yet.
     const token = initialTokenFor(i, j);
 
-    // Only create an interactive rectangle if the cell actually has a token.
-    // Cells without tokens will not be clickable.
-    let rect: leaflet.Rectangle | undefined = undefined;
-    if (token !== null) {
-      rect = leaflet
-        .rectangle(b, {
-          color: "transparent",
-          weight: 1,
-          fillOpacity: 0,
-          interactive: true,
-        })
-        .addTo(map);
-
-      // If token exists, bind a permanent tooltip so players see token values
-      rect.bindTooltip(String(token), {
-        permanent: true,
-        direction: "center",
-        className: "cell-label",
-      });
-
-      // Make rectangle clickable: open the menu for that cell
-      rect.on("click", (ev: leaflet.LeafletMouseEvent) => {
-        if (ev.originalEvent) ev.originalEvent.stopPropagation();
-        // Use the central handler which checks player proximity
-        handleCellClick({ i, j, bounds: b, center, token, rect });
-      });
-    }
-
-    const cell: Cell = { i, j, bounds: b, center, token, rect };
+    const cell: Cell = { i, j, bounds: b, center, token, rect: undefined };
     cells.set(cellKey(i, j), cell);
   }
 }
@@ -459,3 +432,115 @@ function movePlayerByCells(di: number, dj: number) {
   // keep the map centered on the player for dev convenience
   map.panTo(newLatLng);
 }
+
+// Keep track of currently rendered (visible) cells only.
+// When a cell is removed from `visibleCells` we fully forget its state.
+const visibleCells = new Map<string, Cell>();
+
+// Compute integer cell ranges that cover a Leaflet bounds object.
+function visibleRangeForBounds(bounds: leaflet.LatLngBounds) {
+  const south = bounds.getSouth();
+  const north = bounds.getNorth();
+  const west = bounds.getWest();
+  const east = bounds.getEast();
+
+  const iMin = Math.floor((south - CLASSROOM_LATLNG.lat) / TILE_DEGREES);
+  const iMax = Math.floor((north - CLASSROOM_LATLNG.lat) / TILE_DEGREES);
+  const jMin = Math.floor((west - CLASSROOM_LATLNG.lng) / TILE_DEGREES);
+  const jMax = Math.floor((east - CLASSROOM_LATLNG.lng) / TILE_DEGREES);
+
+  // Add a 1-cell padding so UI doesn't hiccup on fast pans
+  return {
+    iMin: iMin - 1,
+    iMax: iMax + 1,
+    jMin: jMin - 1,
+    jMax: jMax + 1,
+  };
+}
+
+// Create and render a visible cell (only if it has a token).
+function spawnVisibleCell(i: number, j: number) {
+  const key = cellKey(i, j);
+  if (visibleCells.has(key)) return visibleCells.get(key)!;
+
+  const b = boundsFor(i, j);
+  const center = b.getCenter();
+
+  // Note: initialTokenFor is called each spawn so cells forget state when despawned.
+  const token = initialTokenFor(i, j);
+
+  let rect: leaflet.Rectangle | undefined;
+  if (token !== null) {
+    rect = leaflet
+      .rectangle(b, {
+        color: "transparent",
+        weight: 1,
+        fillOpacity: 0,
+        interactive: true,
+      })
+      .addTo(map);
+
+    // permanent label
+    rect.bindTooltip(String(token), {
+      permanent: true,
+      direction: "center",
+      className: "cell-label",
+    });
+
+    // click handler uses central distance check
+    rect.on("click", (ev: leaflet.LeafletMouseEvent) => {
+      if (ev.originalEvent) ev.originalEvent.stopPropagation();
+      handleCellClick({ i, j, bounds: b, center, token, rect });
+    });
+  }
+
+  const cell: Cell = { i, j, bounds: b, center, token, rect };
+  visibleCells.set(key, cell);
+  return cell;
+}
+
+// Fully remove a visible cell and forget its runtime state.
+function despawnVisibleCell(key: string) {
+  const cell = visibleCells.get(key);
+  if (!cell) return;
+  // remove any visual elements
+  if (cell.rect) {
+    try {
+      cell.rect.unbindTooltip();
+    } catch {}
+    try {
+      cell.rect.remove();
+    } catch {}
+  }
+  visibleCells.delete(key);
+}
+
+// Recompute which cells should be visible based on current map bounds.
+// Cells that leave the visible area are despawned (forgotten).
+function updateVisibleCells() {
+  const bounds = map.getBounds();
+  const { iMin, iMax, jMin, jMax } = visibleRangeForBounds(bounds);
+
+  // spawn required cells
+  for (let i = iMin; i <= iMax; i++) {
+    for (let j = jMin; j <= jMax; j++) {
+      spawnVisibleCell(i, j);
+    }
+  }
+
+  // despawn cells outside range
+  for (const key of Array.from(visibleCells.keys())) {
+    const [si, sj] = key.split(",").map(Number);
+    if (si < iMin || si > iMax || sj < jMin || sj > jMax) {
+      despawnVisibleCell(key);
+    }
+  }
+}
+
+// Hook into map movement so we spawn/despawn as the viewport changes
+map.on("moveend", () => {
+  updateVisibleCells();
+});
+
+// Ensure update runs on startup
+updateVisibleCells();
