@@ -1,4 +1,6 @@
-# PLAN FOR D3.a
+# PLANS
+
+## PLAN FOR D3.a
 
 1. Read and understand main.ts
 2. Replace main.ts with my own code
@@ -10,3 +12,10 @@
 8. Make a crafting system
 9. Add developer mode to let the player virtually move around
 10. Tune and calibrate settings to fulfill gameplay requirements
+
+## PLAN FOR D3.b
+
+1. Create a button layout for virtual movement
+2. Create dynamically spawning and despawning system for cells (Make sure to keep the screen populated)
+3. Modify the cell coordinate system to use latitude and longitude
+4.
