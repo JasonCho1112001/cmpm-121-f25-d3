@@ -24,4 +24,3 @@
 
 1. Implement flyweight pattern to cell data storage (effective data storage for when inactive)
 2. Implement memento pattern to cell data storage (effective restoration when reactivating)
-
