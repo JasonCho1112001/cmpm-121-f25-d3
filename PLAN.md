@@ -18,4 +18,4 @@
 1. Create a button layout for virtual movement
 2. Create dynamically spawning and despawning system for cells (Make sure to keep the screen populated)
 3. Modify the cell coordinate system to use latitude and longitude
-4.
+4. Create game rules so that victory shows up when the largest possible digit is achieved (currently 16)

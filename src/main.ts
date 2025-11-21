@@ -220,14 +220,15 @@ function showCellMenuFor(cell: Cell) {
   // Clear previous contents
   cellMenu.innerHTML = "";
 
-  // Add a simple title
+  // Show latitude / longitude instead of grid indices
   const title = document.createElement("div");
-  title.textContent = `Cell ${cell.i},${cell.j}`;
+  title.textContent = `Lat: ${cell.center.lat.toFixed(6)}, Lng: ${
+    cell.center.lng.toFixed(6)
+  }`;
   title.style.fontWeight = "600";
   title.style.marginBottom = "6px";
   cellMenu.appendChild(title);
 
-  // (existing logic for grab/craft/info assumes player is in range)
   // Case: cell has a token and player holds none -> offer Grab
   if (cell.token !== null && heldToken === null) {
     const grabBtn = document.createElement("button");
@@ -312,7 +313,9 @@ function showCellMenuFor(cell: Cell) {
 function showCellMenuTooFar(cell: Cell) {
   cellMenu.innerHTML = "";
   const title = document.createElement("div");
-  title.textContent = `Cell ${cell.i},${cell.j}`;
+  title.textContent = `Lat: ${cell.center.lat.toFixed(6)}, Lng: ${
+    cell.center.lng.toFixed(6)
+  }`;
   title.style.fontWeight = "600";
   title.style.marginBottom = "6px";
   cellMenu.appendChild(title);
@@ -384,6 +387,9 @@ function movePlayerTo(latlng: leaflet.LatLng) {
         6,
       )
     }, lng:${latlng.lng.toFixed(6)})`;
+
+  // update visuals for visible cells
+  refreshAllTransparencies();
 
   console.info("Developer moved player to:", cell, latlng);
 }
@@ -458,7 +464,36 @@ function visibleRangeForBounds(bounds: leaflet.LatLngBounds) {
   };
 }
 
-// Create and render a visible cell (only if it has a token).
+// Update transparency for a single visible cell based on player distance
+function updateCellTransparency(cell: Cell) {
+  if (!cell.rect) return;
+  const p = getPlayerCell();
+  const dx = Math.abs(cell.i - p.i);
+  const dy = Math.abs(cell.j - p.j);
+  const inRange = dx <= INTERACTION_RADIUS && dy <= INTERACTION_RADIUS;
+
+  // Make out-of-range cells mostly transparent
+  cell.rect.setStyle({ opacity: inRange ? 1.0 : 0.35, fillOpacity: 0 });
+
+  // Also adjust tooltip element opacity if present
+  try {
+    const tooltip = cell.rect.getTooltip && cell.rect.getTooltip();
+    const tipEl = tooltip && tooltip.getElement && tooltip.getElement();
+    if (tipEl instanceof HTMLElement) {
+      tipEl.style.opacity = inRange ? "1" : "0.45";
+    }
+  } catch {
+    // ignore if tooltip element not available
+  }
+}
+
+// Refresh transparencies for all currently visible cells
+function refreshAllTransparencies() {
+  for (const cell of visibleCells.values()) updateCellTransparency(cell);
+}
+
+// Ensure new visible cells are styled correctly when spawned
+// (inserted in spawnVisibleCell after visibleCells.set)
 function spawnVisibleCell(i: number, j: number) {
   const key = cellKey(i, j);
   if (visibleCells.has(key)) return visibleCells.get(key)!;
@@ -496,6 +531,10 @@ function spawnVisibleCell(i: number, j: number) {
 
   const cell: Cell = { i, j, bounds: b, center, token, rect };
   visibleCells.set(key, cell);
+
+  // apply initial transparency based on current player position
+  updateCellTransparency(cell);
+
   return cell;
 }
 
