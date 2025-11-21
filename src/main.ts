@@ -507,10 +507,16 @@ function despawnVisibleCell(key: string) {
   if (cell.rect) {
     try {
       cell.rect.unbindTooltip();
-    } catch {}
+    } catch (err) {
+      // ignore errors from unbinding tooltip if the element was already removed
+      console.warn("Failed to unbind tooltip for cell:", err);
+    }
     try {
       cell.rect.remove();
-    } catch {}
+    } catch (err) {
+      // ignore errors from removing rectangle
+      console.warn("Failed to remove rectangle for cell:", err);
+    }
   }
   visibleCells.delete(key);
 }
