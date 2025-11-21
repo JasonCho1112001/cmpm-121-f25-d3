@@ -24,6 +24,46 @@ const controlPanelDiv = document.createElement("div");
 controlPanelDiv.id = "controlPanel";
 document.body.append(controlPanelDiv);
 
+// Virtual movement controls (up / down / left / right)
+// Moved to bottom-left of the screen
+controlPanelDiv.style.position = "fixed";
+controlPanelDiv.style.left = "175px";
+controlPanelDiv.style.bottom = "12px";
+controlPanelDiv.style.zIndex = "1000";
+controlPanelDiv.style.display = "grid";
+controlPanelDiv.style.gridTemplateColumns = "repeat(3, 40px)";
+controlPanelDiv.style.gridGap = "6px";
+controlPanelDiv.style.alignItems = "center";
+controlPanelDiv.style.justifyItems = "center";
+controlPanelDiv.style.background = "rgba(255,255,255,0.9)";
+controlPanelDiv.style.padding = "8px";
+controlPanelDiv.style.border = "1px solid #ccc";
+controlPanelDiv.style.borderRadius = "6px";
+controlPanelDiv.style.boxShadow = "0 2px 6px rgba(0,0,0,0.1)";
+
+function mkBtn(label: string, onClick: () => void) {
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.style.width = "40px";
+  b.style.height = "32px";
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return b;
+}
+
+// empty placeholders for grid layout
+controlPanelDiv.appendChild(document.createElement("div"));
+controlPanelDiv.appendChild(mkBtn("↑", () => movePlayerByCells(1, 0)));
+controlPanelDiv.appendChild(document.createElement("div"));
+controlPanelDiv.appendChild(mkBtn("←", () => movePlayerByCells(0, -1)));
+controlPanelDiv.appendChild(document.createElement("div"));
+controlPanelDiv.appendChild(mkBtn("→", () => movePlayerByCells(0, 1)));
+controlPanelDiv.appendChild(document.createElement("div"));
+controlPanelDiv.appendChild(mkBtn("↓", () => movePlayerByCells(-1, 0)));
+controlPanelDiv.appendChild(document.createElement("div"));
+
 const mapDiv = document.createElement("div");
 mapDiv.id = "map";
 document.body.append(mapDiv);
@@ -408,3 +448,14 @@ style.innerHTML = `
   }
 `;
 document.head.append(style);
+
+// Move player by di (lat steps) and dj (lng steps)
+function movePlayerByCells(di: number, dj: number) {
+  const newLat = playerLatLng.lat + di * TILE_DEGREES;
+  const newLng = playerLatLng.lng + dj * TILE_DEGREES;
+  const newLatLng = leaflet.latLng(newLat, newLng);
+  // move marker and update tracked position
+  movePlayerTo(newLatLng);
+  // keep the map centered on the player for dev convenience
+  map.panTo(newLatLng);
+}
