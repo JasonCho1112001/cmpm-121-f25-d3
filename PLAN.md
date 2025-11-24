@@ -24,3 +24,9 @@
 
 1. Implement flyweight pattern to cell data storage (effective data storage for when inactive)
 2. Implement memento pattern to cell data storage (effective restoration when reactivating)
+
+## PLAN FOR D3.d
+
+1. Implement support for browser geolocation API (Make this toggleable between the old movement system using the Facade pattern)
+2. Implement localStorage API so that cells remember their states
+3. Implement a new game button

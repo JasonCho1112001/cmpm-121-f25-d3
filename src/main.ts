@@ -253,7 +253,57 @@ function showCellMenuFor(cell: Cell) {
       hideCellMenu();
     });
     cellMenu.appendChild(grabBtn);
-    // Done
+
+    // New: cell empty and player holds a token -> allow placing any token into the cell
+  } else if (cell.token === null && heldToken !== null) {
+    const placeBtn = document.createElement("button");
+    placeBtn.textContent = `Place ${heldToken}`;
+    placeBtn.style.display = "block";
+    placeBtn.style.width = "100%";
+    placeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // Place the held token into the cell
+      const placedValue = heldToken!;
+      heldToken = null;
+      // create visual rect + tooltip if not present
+      if (!cell.rect) {
+        cell.rect = leaflet.rectangle(cell.bounds, {
+          color: "transparent",
+          weight: 1,
+          fillOpacity: 0,
+          interactive: true,
+        }).addTo(map);
+        // bind click to the rectangle to reopen menu for this cell
+        cell.rect.on("click", (ev: leaflet.LeafletMouseEvent) => {
+          if (ev.originalEvent) ev.originalEvent.stopPropagation();
+          handleCellClick(cell);
+        });
+      }
+      // bind tooltip to show the new token value (unbind existing to be safe)
+      try {
+        cell.rect.unbindTooltip();
+      } catch {
+        // ignore errors if there was no tooltip bound or it was already removed
+      }
+      cell.rect.bindTooltip(String(placedValue), {
+        permanent: true,
+        direction: "center",
+        className: "cell-label",
+      });
+      cell.token = placedValue;
+
+      // Persist memento if cell differs from deterministic initial state
+      const key = cellKey(cell.i, cell.j);
+      const initial = initialTokenFor(cell.i, cell.j);
+      if (cell.token !== initial) modifiedCells.set(key, { token: cell.token });
+      else modifiedCells.delete(key);
+
+      refreshHeldDisplay();
+      // ensure transparency updates immediately
+      updateCellTransparency(cell);
+      hideCellMenu();
+    });
+    cellMenu.appendChild(placeBtn);
   } else if (cell.token !== null && heldToken !== null) {
     // Player holds a token and cell has a token -> possible craft
     if (heldToken === cell.token) {
@@ -292,8 +342,7 @@ function showCellMenuFor(cell: Cell) {
     // Other informative states
     if (heldToken !== null && cell.token === null) {
       const info = document.createElement("div");
-      info.textContent =
-        "You are holding a token. There's no token here to craft with.";
+      info.textContent = "You are holding a token. Click Place to put it here.";
       info.style.marginBottom = "6px";
       cellMenu.appendChild(info);
     } else if (heldToken === null && cell.token === null) {
@@ -488,7 +537,7 @@ function refreshAllTransparencies() {
 }
 
 // Ensure new visible cells are styled correctly when spawned
-// (inserted in spawnVisibleCell after visibleCells.set)
+// (spawn interactive rectangle for every visible cell so empty cells can be clicked/placed into)
 function spawnVisibleCell(i: number, j: number) {
   const key = cellKey(i, j);
   if (visibleCells.has(key)) return visibleCells.get(key)!;
@@ -500,33 +549,34 @@ function spawnVisibleCell(i: number, j: number) {
   const fromMemento = modifiedCells.get(key);
   const token = fromMemento ? fromMemento.token : initialTokenFor(i, j);
 
-  let rect: leaflet.Rectangle | undefined;
-  if (token !== null) {
-    rect = leaflet
-      .rectangle(b, {
-        color: "transparent",
-        weight: 1,
-        fillOpacity: 0,
-        interactive: true,
-      })
-      .addTo(map);
+  // Always create an interactive rectangle so empty cells are clickable (for placing tokens)
+  const rect = leaflet
+    .rectangle(b, {
+      color: "transparent",
+      weight: 1,
+      fillOpacity: 0,
+      interactive: true,
+    })
+    .addTo(map);
 
-    // permanent label
+  // If token exists, show its tooltip; otherwise no tooltip (but cell is still clickable)
+  if (token !== null) {
     rect.bindTooltip(String(token), {
       permanent: true,
       direction: "center",
       className: "cell-label",
     });
-
-    // click handler uses central distance check
-    rect.on("click", (ev: leaflet.LeafletMouseEvent) => {
-      if (ev.originalEvent) ev.originalEvent.stopPropagation();
-      handleCellClick({ i, j, bounds: b, center, token, rect });
-    });
   }
 
   const cell: Cell = { i, j, bounds: b, center, token, rect };
   visibleCells.set(key, cell);
+
+  // Click handler should reference the live visibleCells entry so updates (place/grab) are reflected
+  rect.on("click", (ev: leaflet.LeafletMouseEvent) => {
+    if (ev.originalEvent) ev.originalEvent.stopPropagation();
+    const live = visibleCells.get(key);
+    if (live) handleCellClick(live);
+  });
 
   // apply initial transparency based on current player position
   updateCellTransparency(cell);
