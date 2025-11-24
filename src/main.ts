@@ -660,3 +660,153 @@ console.info(
   "Total visible cells:",
   visibleCells.size,
 );
+
+// Movement facade + backends (Facade pattern)
+// Provides a uniform interface for player movement so the rest of the game
+// does not depend on whether movement is button-based or from geolocation.
+type MoveCallback = (latlng: leaflet.LatLng) => void;
+
+interface MovementBackend {
+  start(): void;
+  stop(): void;
+  setMoveCallback(cb: MoveCallback | null): void;
+  name: string;
+}
+
+class ButtonMover implements MovementBackend {
+  private cb: MoveCallback | null = null;
+  name = "buttons";
+  start() {/* nothing to start for buttons */}
+  stop() {/* nothing to stop */}
+  setMoveCallback(cb: MoveCallback | null) {
+    this.cb = cb;
+  }
+  moveByCells(di: number, dj: number) {
+    if (!this.cb) return;
+    const newLat = playerLatLng.lat + di * TILE_DEGREES;
+    const newLng = playerLatLng.lng + dj * TILE_DEGREES;
+    this.cb(leaflet.latLng(newLat, newLng));
+  }
+}
+
+class GeoMover implements MovementBackend {
+  private cb: MoveCallback | null = null;
+  private watchId: number | null = null;
+  name = "geolocation";
+  start() {
+    if (!("geolocation" in navigator)) return;
+    if (this.watchId != null) return;
+    this.watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        this.cb?.(leaflet.latLng(lat, lng));
+      },
+      (err) => console.warn("Geolocation error", err),
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 },
+    );
+  }
+  stop() {
+    if (this.watchId != null) {
+      navigator.geolocation.clearWatch(this.watchId);
+      this.watchId = null;
+    }
+  }
+  setMoveCallback(cb: MoveCallback | null) {
+    this.cb = cb;
+  }
+}
+
+class MovementFacade {
+  private backends: Record<string, MovementBackend> = {};
+  private active: MovementBackend;
+  constructor(initial: MovementBackend, others: MovementBackend[] = []) {
+    this.backends[initial.name] = initial;
+    for (const b of others) this.backends[b.name] = b;
+    this.active = initial;
+  }
+  activate(name: string) {
+    if (this.active.name === name) return;
+    this.active.stop();
+    const next = this.backends[name];
+    if (!next) return;
+    this.active = next;
+    this.active.start();
+    this.active.setMoveCallback(movePlayerTo);
+    controlPanelDiv.style.display = this.active.name === "buttons"
+      ? "grid"
+      : "none";
+  }
+  toggle() {
+    const next = this.active.name === "buttons" ? "geolocation" : "buttons";
+    this.activate(next);
+  }
+  setMoveCallback(cb: MoveCallback | null) {
+    for (const b of Object.values(this.backends)) b.setMoveCallback(cb);
+  }
+  moveBy(di: number, dj: number) {
+    if (this.active.name === "buttons") {
+      (this.active as ButtonMover).moveByCells(di, dj);
+    }
+  }
+  getMode() {
+    return this.active.name;
+  }
+  start() {
+    this.active.start();
+  }
+  stop() {
+    this.active.stop();
+  }
+}
+
+// instantiate facade and wire to game movement
+const buttonMover = new ButtonMover();
+const geoMover = new GeoMover();
+const movementFacade = new MovementFacade(buttonMover, [geoMover]);
+movementFacade.setMoveCallback(movePlayerTo);
+
+// Rebuild control panel to use the facade (use the mkBtn defined earlier)
+controlPanelDiv.innerHTML = "";
+controlPanelDiv.appendChild(document.createElement("div"));
+controlPanelDiv.appendChild(mkBtn("↑", () => movementFacade.moveBy(1, 0)));
+controlPanelDiv.appendChild(document.createElement("div"));
+controlPanelDiv.appendChild(mkBtn("←", () => movementFacade.moveBy(0, -1)));
+controlPanelDiv.appendChild(document.createElement("div"));
+controlPanelDiv.appendChild(mkBtn("→", () => movementFacade.moveBy(0, 1)));
+controlPanelDiv.appendChild(document.createElement("div"));
+controlPanelDiv.appendChild(mkBtn("↓", () => movementFacade.moveBy(-1, 0)));
+controlPanelDiv.appendChild(document.createElement("div"));
+
+// Movement toggle UI (bottom-left) — hides arrow keys when geolocation is active
+const movementToggle = document.createElement("button");
+movementToggle.id = "movementToggle";
+movementToggle.style.position = "fixed";
+movementToggle.style.left = "12px";
+movementToggle.style.bottom = "64px";
+movementToggle.style.zIndex = "1000";
+movementToggle.style.padding = "6px 10px";
+movementToggle.style.borderRadius = "6px";
+movementToggle.style.border = "1px solid #333";
+movementToggle.style.background = "white";
+movementToggle.style.boxShadow = "0 2px 6px rgba(0,0,0,0.12)";
+document.body.appendChild(movementToggle);
+
+function refreshMovementToggleUI() {
+  const mode = movementFacade.getMode();
+  movementToggle.textContent = `Mode: ${
+    mode === "buttons" ? "Buttons" : "Geolocation"
+  }`;
+  controlPanelDiv.style.display = mode === "buttons" ? "grid" : "none";
+}
+
+movementToggle.addEventListener("click", (e) => {
+  e.stopPropagation();
+  movementFacade.toggle();
+  refreshMovementToggleUI();
+  if (movementFacade.getMode() === "geolocation") movementFacade.start();
+  else movementFacade.stop();
+});
+
+// initialize UI visibility according to current mode
+refreshMovementToggleUI();
