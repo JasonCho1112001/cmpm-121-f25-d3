@@ -250,6 +250,8 @@ function showCellMenuFor(cell: Cell) {
       if (cell.token !== initial) modifiedCells.set(key, { token: cell.token });
       else modifiedCells.delete(key);
       refreshHeldDisplay();
+      // persist immediately
+      saveState();
       hideCellMenu();
     });
     cellMenu.appendChild(grabBtn);
@@ -422,15 +424,16 @@ function movePlayerTo(latlng: leaflet.LatLng) {
   // Update tracked player lat/lng for interaction checks
   playerLatLng = latlng;
 
+  // Persist player's position
+  saveState();
+
   // Compute which cell the player is now in (for dev feedback)
   const cell = latLngToCell(latlng.lat, latlng.lng);
 
   // Update status panel with developer location info
   statusPanelDiv.innerText =
     `Dev moved player to cell ${cell.i},${cell.j} (lat:${
-      latlng.lat.toFixed(
-        6,
-      )
+      latlng.lat.toFixed(6)
     }, lng:${latlng.lng.toFixed(6)})`;
 
   // update visuals for visible cells
@@ -595,12 +598,12 @@ function despawnVisibleCell(key: string) {
     try {
       cell.rect.unbindTooltip();
     } catch (_err) {
-      // ignore errors from unbinding tooltip if the element was already removed
+      // ignore errors during tooltip cleanup
     }
     try {
       cell.rect.remove();
     } catch (_err) {
-      // ignore errors from removing rectangle
+      // ignore errors during element removal
     }
   }
 
@@ -616,6 +619,9 @@ function despawnVisibleCell(key: string) {
   }
 
   visibleCells.delete(key);
+
+  // persist to localStorage immediately after despawn
+  saveState();
 }
 
 // Recompute which cells should be visible based on current map bounds.
@@ -644,14 +650,6 @@ function updateVisibleCells() {
 map.on("moveend", () => {
   updateVisibleCells();
 });
-
-// Hook into map movement so we spawn/despawn as the viewport changes
-map.on("moveend", () => {
-  updateVisibleCells();
-});
-
-// Ensure update runs on startup
-updateVisibleCells();
 
 // Now that visibleCells has been declared/initialized, log the example and count
 console.info(
@@ -810,3 +808,113 @@ movementToggle.addEventListener("click", (e) => {
 
 // initialize UI visibility according to current mode
 refreshMovementToggleUI();
+
+// --- Persistence: localStorage helpers ------------------------------------
+const STORAGE_KEY = "cmpm121:d3_state_v1";
+
+function saveState() {
+  try {
+    const m: Record<string, CellMemento> = {};
+    for (const [k, v] of modifiedCells.entries()) m[k] = v;
+    const payload = {
+      modifiedCells: m,
+      player: { lat: playerLatLng.lat, lng: playerLatLng.lng },
+      heldToken,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (err) {
+    console.warn("saveState failed:", err);
+  }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed && parsed.modifiedCells && typeof parsed.modifiedCells === "object"
+    ) {
+      modifiedCells.clear();
+      for (const [k, v] of Object.entries(parsed.modifiedCells)) {
+        const maybe = v as { token?: number | null };
+        const token = typeof maybe.token === "number" ? maybe.token : null;
+        modifiedCells.set(k, { token });
+      }
+    }
+    if (parsed && typeof parsed.heldToken !== "undefined") {
+      heldToken = parsed.heldToken as number | null;
+      refreshHeldDisplay();
+    }
+    if (
+      parsed && parsed.player && typeof parsed.player.lat === "number" &&
+      typeof parsed.player.lng === "number"
+    ) {
+      playerLatLng = leaflet.latLng(parsed.player.lat, parsed.player.lng);
+      playerMarker.setLatLng(playerLatLng);
+      // center map on restored player position
+      map.panTo(playerLatLng);
+    }
+  } catch (err) {
+    console.warn("loadState failed:", err);
+  }
+}
+
+// Save on page unload so state persists across browser close
+globalThis.addEventListener("beforeunload", () => {
+  saveState();
+});
+
+// New Game button (clears persisted state and resets runtime)
+const newGameBtn = document.createElement("button");
+newGameBtn.textContent = "New Game";
+newGameBtn.style.position = "fixed";
+newGameBtn.style.left = "12px";
+newGameBtn.style.bottom = "100px";
+newGameBtn.style.zIndex = "1000";
+newGameBtn.style.padding = "6px 10px";
+newGameBtn.style.borderRadius = "6px";
+newGameBtn.style.border = "1px solid #333";
+newGameBtn.style.background = "white";
+newGameBtn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.12)";
+newGameBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+
+  // Remove persisted storage
+  localStorage.removeItem(STORAGE_KEY);
+
+  // Clear in-memory mementos
+  modifiedCells.clear();
+
+  // Remove visible visuals WITHOUT calling despawnVisibleCell (to avoid re-persisting mementos)
+  for (const key of Array.from(visibleCells.keys())) {
+    const cell = visibleCells.get(key);
+    if (cell?.rect) {
+      try {
+        cell.rect.unbindTooltip();
+      } catch (_err) { /* ignore errors during tooltip cleanup */ }
+      try {
+        cell.rect.remove();
+      } catch (_err) { /* ignore errors during element removal */ }
+    }
+  }
+  // Forget all visible cells
+  visibleCells.clear();
+
+  // Reset player and inventory
+  heldToken = null;
+  refreshHeldDisplay();
+  playerLatLng = CLASSROOM_LATLNG;
+  playerMarker.setLatLng(playerLatLng);
+  map.panTo(playerLatLng);
+
+  // Persist cleared state and spawn fresh cells (will use initialTokenFor)
+  saveState();
+  updateVisibleCells();
+});
+document.body.appendChild(newGameBtn);
+
+// Load persisted state now (STORAGE_KEY / saveState / loadState are defined above)
+loadState();
+// spawn visible cells after state is loaded
+updateVisibleCells();
